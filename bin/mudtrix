@@ -1,0 +1,14 @@
+#!/bin/bash
+
+TOP_D=`export PYSRC=${BASH_SOURCE}; python <<EOF
+import os, pathlib
+source = os.environ["PYSRC"]
+if os.path.islink(source):
+   path = os.path.dirname(os.readlink(source))
+else:
+   path = os.path.dirname(source)
+path = os.path.abspath(os.path.join(path, ".."))
+print(path)
+EOF`
+
+${TOP_D}/venv/bin/python -m mudtrix $*
