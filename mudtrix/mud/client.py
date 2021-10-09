@@ -3,6 +3,9 @@ import logging
 import re
 import enum
 
+#from mautrix.util.logging import TraceLogger
+
+
 
 CONNECT_RX = re.compile(r".*connects you to an existing character\.")
 LOGGED_IN_RX = re.compile(r"^--__--LOGGED_IN--__--$")
@@ -61,17 +64,6 @@ LINE_MATCHES = \
 ]
 
 
-class ReadlineIter:
-    def __init__(self, reader):
-        self.reader = reader
-
-    def __iter__(self):
-        return self
-
-    async def __next__(self):
-        return await self.reader.readline()
-
-
 class State(enum.Enum):
     CONNECTING = 1
     CONNECTED = 2
@@ -79,23 +71,21 @@ class State(enum.Enum):
 
 
 class MudClient:
-
-    def __init__(self, user, password, host, port):
-        log = logging.getLogger("mudtrix.")
-        self.user = user
-        self.password = password
-        self.host = host
-        self.port = port
+    def __init__(self, mxUser):
+        self.log = logging.getLogger(f"mudtrix.Client({mxUser.name})")
+        self.mxUser = mxUser
+        self.user = mxUser.name
+        self.password = mxUser.password
+        self.host = mxUser.mudHost
+        self.port = mxUser.mudPort
         self.reader = None
         self.writer = None
-        self.readlineIter = None
         self.state = State.CONNECTING
 
     async def connect(self):
-        print(f"Connecting to {self.host}:{self.port}")
+        self.log.info(f"Connecting to {self.host}:{self.port}")
         self.reader, self.writer = await asyncio.open_connection(self.host,
                                                                  self.port)
-        self.readlineIter = ReadlineIter(self.reader)
 
     def isConnected(self):
         return self.state == State.CONNECTED
@@ -109,14 +99,14 @@ class MudClient:
 
     def sendMatrixMessage(self, body, line, lineType, mudUser, mudDBnum,
                           forcerUser, forcerDBnum):
-        print(f"sendMatrixMessage: {lineType.name} {mudUser}/{mudDBnum} <- {forcerUser}/{forcerDBnum}: {body}")
+        self.log.debug(f"sendMatrixMessage: {lineType.name} {mudUser}/{mudDBnum} <- {forcerUser}/{forcerDBnum}: {body}")
 
     def proccessLine(self, line, rx_name, rx, lineType, matchUser, matchDBNum,
                      matchForcerUser, matchForcerDBNum, matchBody):
         match = rx.match(line)
         if not match:
             return False
-        print(f"{rx_name}: {match}")
+        self.log.debug(f"{rx_name}: {match}")
 
         self.sendMatrixMessage(
             match.group(matchBody), line, lineType,
@@ -128,46 +118,47 @@ class MudClient:
         return True
 
     async def login(self):
-        for line in self.readlineIter:
-            line = await line
+        while not self.reader.at_eof():
+            line = await self.reader.readline()
             line = line.decode("latin1").strip()
-            print(f"Line from MUD: {line}")
+            self.log.debug(f"Line from MUD: {line}")
 
             # State: CONNECTING
             if self.state == State.CONNECTING and CONNECT_RX.match(line):
-                print("Logging in...")
+                self.log.info("Logging in...")
                 self.write(f"connect {self.user} {self.password}\n")
                 self.state = State.CONNECTED
                 self.sendPlayerSetup()
             # State: CONNECTED
             elif self.state == State.CONNECTED and LOGGED_IN_RX.match(line):
-                print("Logged in.")
+                self.log.info("Logged in.")
                 self.state = State.LOGGED_IN
+                await self.mxUser.onConnect()
                 return True
 
     async def run(self):
-        print(f"MUDClient.run: {self}")
+        self.log.debug(f"MUDClient.run: {self}")
 
         if self.state != State.LOGGED_IN:
-            print(f"Error: MUDClient.run called with {self.state=}")
+            self.log.error(f"Error: MUDClient.run called with {self.state=}")
             return
 
-        for line in self.readlineIter:
-            line = await line
+        while not self.reader.at_eof():
+            line = await self.reader.readline()
             line = line.decode("latin1").strip()
-            print(f"Line from MUD: {line}")
+            self.log.debug(f"Line from MUD: {line}")
 
             # Action: Filters
             if FAZ_URL_RX.match(line):
-                print("Skipping predefined filters")
+                self.log.debug("Skipping predefined filters")
             # Action: self say
             if line.startswith("You say, ") or YOU_PAGED_RX.match(line):
-                print("Skipping my own line")
+                self.log.debug("Skipping my own line")
             # Action: self pose
             # TODO: track username changes, keep a self.currentUser, rebuild
             # a regex for it for use here instead of starts with.
             if line.startswith(self.user + " "):
-                print("Skipping self pose")
+                self.log.debug("Skipping self pose")
 
             for entry in LINE_MATCHES:
                 if self.proccessLine(line, *entry):
@@ -180,8 +171,10 @@ class MudClient:
 
 if __name__ == "__main__":
     mc = MudClient("bobbit", "bobbit", "sundive.dyndns.org", 4202)
+
     async def run(self):
         await mc.connect()
         await mc.login()
         await mc.run()
+
     asyncio.run(run())

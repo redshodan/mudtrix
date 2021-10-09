@@ -1,4 +1,4 @@
-mautrix>=0.8.11,<0.9
+mautrix>=0.10.5,<0.11
 ryd >= 0.4.1
 commonmark >= 0.9.1
 SQLAlchemy>=1.2,<2

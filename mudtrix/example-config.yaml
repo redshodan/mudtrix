@@ -227,6 +227,8 @@ logging:
             level: DEBUG
         aiohttp:
             level: INFO
+        mudtrix:
+            level: DEBUG
     root:
         level: DEBUG
         handlers: [file, console]

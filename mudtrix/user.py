@@ -1,8 +1,11 @@
 from typing import Awaitable, Dict, List
 import asyncio
+import logging
 
-from mautrix.bridge import BaseUser
 from mautrix.types import UserID, RoomID
+from mautrix.util.logging import TraceLogger
+from mautrix.bridge import BaseUser, BridgeState, async_getter_lock
+from mautrix.util.bridge_state import BridgeStateEvent
 
 from .config import Config
 from .mud import MudClient
@@ -11,10 +14,15 @@ from .mud import MudClient
 config: Config
 
 
-### User to external client mapping.
 class User(BaseUser):
+    log: TraceLogger = logging.getLogger("mudtrix.User")
+
+    by_mudUser: Dict[str, 'User'] = {}
+
     def __init__(self, name, password, dbnum):
         self.log.debug(f"User({name}, {password}, {dbnum})")
+        self.mxid = UserID(f"@mud_{name}:{config['homeserver.domain']}")
+        super().__init__()
         self.name = name
         self.password = password
         self.dbnum = dbnum
@@ -28,7 +36,7 @@ class User(BaseUser):
 
     async def login(self):
         self.log.debug(f"User.login: {self}")
-        self.client = MudClient(self.name, self.password, self.mudHost, self.mudPort)
+        self.client = MudClient(self)
         await self.client.connect()
         await self.client.login()
 
@@ -42,9 +50,15 @@ class User(BaseUser):
     async def get_direct_chats(self) -> Dict[UserID, List[RoomID]]:
         pass
 
+    async def onConnect(self):
+        self.log.info(f"onConnect({self.name})")
+        User.by_mudUser[self.name] = self
+        await self.push_bridge_state(BridgeStateEvent.CONNECTED)
+
     @classmethod
     async def init_all(cls):
-        cls.log.debug("User.init_all")
+        # cls.log.debug("User.init_all")
+        # return []
         users = [user for user in cls.get_all()]
         cls.log.debug(f"{cls.loop=}")
 

@@ -1,5 +1,8 @@
+import logging
+
 from mautrix.bridge import Bridge
 from mautrix.types import RoomID, UserID
+from mautrix.util.logging import TraceLogger
 
 from .config import Config
 from .db import init as init_db
@@ -12,6 +15,8 @@ from .version import VERSION
 
 
 class MUDBridge(Bridge):
+    log: TraceLogger = logging.getLogger("mudtrix.Bridge")
+
     name = "mudtrix"
     module = "mudtrix"
     command = "python -m mudtrix"
@@ -32,9 +37,7 @@ class MUDBridge(Bridge):
         self.matrix = context.mx = MatrixHandler(context)
         self.add_startup_actions(init_user(context))
         init_portal(context)
-        # self.add_startup_actions(init_puppet(context))
-        init_puppet(context)
-        print(f"{self.startup_actions=}")
+        self.add_startup_actions(init_puppet(context))
         if self.config["bridge.resend_bridge_info"]:
             self.add_startup_actions(self.resend_bridge_info())
 
@@ -68,6 +71,10 @@ class MUDBridge(Bridge):
 
     def is_bridge_ghost(self, user_id: UserID):
         return bool(Puppet.get_id_from_mxid(user_id))
+
+    async def count_logged_in_users(self) -> int:
+        return len(User.by_mudUser)
+
 
 
 MUDBridge().run()
